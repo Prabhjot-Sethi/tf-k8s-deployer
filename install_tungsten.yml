@@ -1,0 +1,3 @@
+- hosts: controller_group
+  roles:
+    - role: cni

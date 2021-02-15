@@ -1,0 +1,62 @@
+---
+- name: install tungsten fabric
+  block:
+    - name: Create tungsten fabric directory
+      file:
+        path: "{{ _tungsten_fabric_destdir }}"
+        state: directory
+
+    - name: create controller manifest file from template
+      template:
+        src: "tf-manifest.j2"
+        dest: "{{ _tungsten_fabric_destdir }}/tf-manifest.yaml"
+
+    - name: apply tf controller manifest
+      shell: >
+        kubectl apply -f {{ _tungsten_fabric_destdir }}/tf-manifest.yaml
+
+    - name: get the controller node name
+      shell: >
+        kubectl get nodes -o wide | grep master | grep {{ _tf_controller_ip }} | awk '{print $1}'
+      register: tf_controller_name
+
+    - name: assign label to controller node
+      shell: >
+        kubectl label node {{ tf_controller_name.stdout }} --overwrite node-role.tungstenfabric/controller= ;
+
+    - name: wait for controller to start
+      shell: >
+        set -o pipefail && 
+        kubectl get pods -n tungsten | grep -v Running
+      register: tungsten_pods
+      retries: 100
+      delay: 30
+      until:
+        - tungsten_pods.stdout_lines | length == 1
+      changed_when: false
+
+    - name: create CNI manifest file from template
+      template:
+        src: "tf-cni-manifest.j2"
+        dest: "{{ _tungsten_fabric_destdir }}/tf-cni-manifest.yaml"
+
+    - name: apply tf CNI manifest
+      shell: >
+        kubectl apply -f {{ _tungsten_fabric_destdir }}/tf-cni-manifest.yaml
+
+    - name: wait for vrouter to start
+      shell: >
+        set -o pipefail && 
+        kubectl get pods -n tungsten | grep -v Running
+      register: tungsten_pods
+      retries: 100
+      delay: 30
+      until:
+        - tungsten_pods.stdout_lines | length == 1
+      changed_when: false
+
+    - name: assign remaining tungsten fabric labels
+      shell: >
+        kubectl label node {{ tf_controller_name.stdout }} --overwrite node-role.tungstenfabric/analytics= ;
+        kubectl label node {{ tf_controller_name.stdout }} --overwrite node-role.tungstenfabric/webui= ;
+
